@@ -213,8 +213,6 @@ footer a { color: inherit; }
     <div id="status" role="status" aria-live="polite"></div>
     <button type="button" class="btn primary" id="savePdf">Save booking as PDF</button>
     <button type="button" class="btn" id="emailSummary">Email booking summary</button>
-    <button type="button" class="btn" id="copySummary">Copy booking summary</button>
-    <textarea id="fallback" readonly hidden aria-label="Booking summary"></textarea>
   </section>
 
   <footer>
@@ -897,21 +895,6 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
     out.push('Typing your name constitutes your electronic signature and acceptance of the Terms & Conditions.');
     return out.join('\n');
   }
-  function copyText(text) {
-    var fb = $('fallback');
-    function manual() {
-      fb.value = text; fb.hidden = false; fb.focus(); fb.select();
-      try { fb.setSelectionRange(0, text.length); } catch (e) {}
-      setStatus('Your browser blocked copying. The summary is selected below. Press and hold, then choose Copy.', 'err');
-    }
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(function () {
-        fb.hidden = true;
-        setStatus('Booking summary copied. Paste it into an email to <b>info@precincthospitality.com.au</b>.', 'ok');
-      }, manual);
-    } else manual();
-  }
-
   /* ---------- PDF ---------- */
   function clean(s) {
     var map = { '‘': "'", '’': "'", '“': '"', '”': '"', '–': '-', '—': '-', '…': '...' };
@@ -1018,7 +1001,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
     var done = function () { busy = false; $('savePdf').disabled = false; };
     var blob;
     try { blob = buildPdf(d); }
-    catch (e) { done(); setStatus('The PDF could not be created. Use "Email booking summary" or "Copy booking summary" instead.', 'err'); return; }
+    catch (e) { done(); setStatus('The PDF could not be created. Use "Email booking summary" instead.', 'err'); return; }
     var name = pdfName(), file = null;
     try { file = new File([blob], name, { type: 'application/pdf' }); } catch (e) {}
     function download() {
@@ -1041,15 +1024,9 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
     if (errs.length) { showErrors(errs); return; }
     var subject = 'Booking confirmation - ' + (val('client_name') || 'Client') + ' - F1 2027';
     var body = summary(d) + '\n\n(Please attach the saved PDF if you have it.)';
-    setStatus('Your email app should open with the booking summary. If nothing opened, tap "Copy booking summary" and paste it into an email to <b>' + MAIL + '</b>.', 'ok');
+    setStatus('Your email app should open with the booking summary. If nothing opened, save the PDF and email it to <b>' + MAIL + '</b>.', 'ok');
     window.location.href = 'mailto:' + MAIL + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
   });
-  $('copySummary').addEventListener('click', function () {
-    var d = collect(), errs = validate(d);
-    if (errs.length) { showErrors(errs); return; }
-    copyText(summary(d));
-  });
-
   recalc();
 })();
 </script>
