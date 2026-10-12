@@ -118,6 +118,8 @@ input[inputmode] { font-variant-numeric: tabular-nums; }
 #sigPad { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
 .sig-ph { position: absolute; inset: 0; display: grid; place-items: center; font-size: 13px; color: var(--muted); pointer-events: none; }
 .row-end { display: flex; justify-content: flex-end; }
+.sig-tools { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 16px; }
+.sigwrap.drag { outline: 3px dashed var(--gold); outline-offset: 2px; }
 .linkbtn { background: none; border: 0; padding: 8px 4px; font: inherit; font-weight: 700; font-size: 13px; color: var(--gold-text); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; min-height: 40px; }
 .note { margin: 0; font-style: italic; font-size: 12px; color: var(--muted); }
 .actions { display: flex; flex-direction: column; gap: 10px; }
@@ -131,6 +133,8 @@ input[inputmode] { font-variant-numeric: tabular-nums; }
 .sendto { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .sendto b { user-select: all; -webkit-user-select: all; }
 #fallback { width: 100%; min-height: 150px; font-size: 13px; resize: vertical; }
+#sendNote { text-align: center; }
+#sendNote a { color: var(--gold-text); }
 footer { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; font-size: 11.5px; color: var(--muted); padding-top: 12px; border-top: 1px solid var(--rule); }
 footer img { width: 84px; height: auto; display: block; }
 footer p { margin: 0; }
@@ -195,20 +199,26 @@ footer a { color: inherit; }
       <label for="sign_date">Date</label>
       <input type="text" id="sign_date" maxlength="20" inputmode="numeric" autocomplete="off">
     </div>
-    <p class="subhead">Sign in the box below using your finger or mouse.</p>
+    <p class="subhead">Sign in the box below: draw with your finger, pen or mouse, or upload or paste an image of your signature.</p>
     <div class="sigwrap" id="sigWrap" tabindex="-1" role="img" aria-label="Signature box: draw your signature here with your finger or mouse">
       <canvas id="sigPad"></canvas>
-      <div class="sig-ph" id="sigPh">Sign here</div>
+      <div class="sig-ph" id="sigPh">Sign here, or upload / paste an image</div>
     </div>
-    <div class="row-end"><button type="button" class="linkbtn" id="sigClear">Clear signature</button></div>
-    <p class="note">Your drawn signature above constitutes your electronic signature and acceptance of these Terms &amp; Conditions.</p>
+    <div class="sig-tools">
+      <button type="button" class="linkbtn" id="sigUpload">Upload image</button>
+      <button type="button" class="linkbtn" id="sigPaste">Paste image</button>
+      <button type="button" class="linkbtn" id="sigClear">Clear signature</button>
+    </div>
+    <input type="file" id="sigFile" accept="image/*" hidden>
+    <p class="msg" id="sigMsg" role="status" hidden></p>
+    <p class="note">Your signature above constitutes your electronic signature and acceptance of these Terms &amp; Conditions.</p>
   </section>
 
   <section aria-labelledby="h-send" class="actions">
     <h2 id="h-send">Finish</h2>
     <div id="status" role="status" aria-live="polite"></div>
     <button type="button" class="btn primary" id="savePdf">Save booking as PDF</button>
-    <button type="button" class="btn" id="emailSummary">Email booking summary</button>
+    <p class="msg" id="sendNote">After saving, email your PDF to <a href="mailto:info@precincthospitality.com.au"><b>info@precincthospitality.com.au</b></a> to complete your booking.</p>
   </section>
 
   <footer>
@@ -764,7 +774,12 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
 
   /* ---------- signature pad ---------- */
   var pad = $('sigPad'), ctx = pad.getContext('2d');
-  var strokes = [], cur = null, padW = 1, padH = 1;
+  var strokes = [], cur = null, padW = 1, padH = 1, sigImg = null;
+  function fitImg(c, w, h) {
+    var m = Math.min(w, h) * 0.06, k = Math.min((w - 2 * m) / sigImg.width, (h - 2 * m) / sigImg.height);
+    var dw = sigImg.width * k, dh = sigImg.height * k;
+    c.drawImage(sigImg, (w - dw) / 2, (h - dh) / 2, dw, dh);
+  }
   function inkColor() { return getComputedStyle(document.documentElement).getPropertyValue('--fg').trim() || '#111'; }
   function paint(c, w, h, color, lw) {
     c.lineCap = 'round'; c.lineJoin = 'round'; c.strokeStyle = color; c.fillStyle = color; c.lineWidth = lw;
@@ -784,8 +799,9 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, pad.width, pad.height);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    paint(ctx, padW, padH, inkColor(), 2.4);
-    $('sigPh').hidden = strokes.length > 0;
+    if (sigImg) { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, padW, padH); fitImg(ctx, padW, padH); }
+    paint(ctx, padW, padH, sigImg ? '#111111' : inkColor(), 2.4);
+    $('sigPh').hidden = strokes.length > 0 || !!sigImg;
   }
   function sizePad() {
     var r = pad.getBoundingClientRect(), dpr = Math.max(1, window.devicePixelRatio || 1);
@@ -809,7 +825,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
   function endStroke() { cur = null; }
   pad.addEventListener('pointerup', endStroke);
   pad.addEventListener('pointercancel', endStroke);
-  $('sigClear').addEventListener('click', function () { strokes = []; cur = null; redraw(); });
+  $('sigClear').addEventListener('click', function () { strokes = []; cur = null; sigImg = null; sigNote(''); redraw(); });
   if (window.ResizeObserver) new ResizeObserver(sizePad).observe(pad); else window.addEventListener('resize', sizePad);
   if (window.matchMedia) {
     try { window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', redraw); } catch (e) {}
@@ -818,13 +834,65 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
   sizePad();
   function hasSig() {
     var n = 0; strokes.forEach(function (s) { n += s.length; });
-    return n >= 3;
+    return !!sigImg || n >= 3;
   }
+  function sigNote(text, cls) {
+    var el = $('sigMsg'); el.hidden = !text; el.className = 'msg' + (cls ? ' ' + cls : ''); el.textContent = text || '';
+  }
+  function useImage(blob) {
+    if (!blob || !/^image\//.test(blob.type || '')) { sigNote('That file is not an image. Choose a PNG or JPG of your signature.', 'err'); return; }
+    var url = URL.createObjectURL(blob), im = new Image();
+    im.onload = function () {
+      URL.revokeObjectURL(url);
+      if (!im.naturalWidth || !im.naturalHeight) { sigNote('That image could not be read. Try a PNG or JPG.', 'err'); return; }
+      var k = Math.min(1, 1200 / Math.max(im.naturalWidth, im.naturalHeight));
+      var c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(im.naturalWidth * k)); c.height = Math.max(1, Math.round(im.naturalHeight * k));
+      c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+      sigImg = c;
+      $('sigWrap').removeAttribute('aria-invalid');
+      if ($('status').querySelector('.err')) setStatus('');
+      sigNote('Signature image added. You can also draw over it, or tap Clear signature to start again.', 'ok');
+      redraw();
+    };
+    im.onerror = function () { URL.revokeObjectURL(url); sigNote('That image could not be read. Try a PNG or JPG.', 'err'); };
+    im.src = url;
+  }
+  $('sigUpload').addEventListener('click', function () { $('sigFile').click(); });
+  $('sigFile').addEventListener('change', function () { var f = this.files && this.files[0]; this.value = ''; if (f) useImage(f); });
+  $('sigPaste').addEventListener('click', function () {
+    var blocked = function () { sigNote('Your browser did not allow pasting. Click the signature box, then press Ctrl+V (or Cmd+V), or use Upload image.', 'err'); };
+    if (!(navigator.clipboard && navigator.clipboard.read)) { blocked(); return; }
+    navigator.clipboard.read().then(function (items) {
+      for (var i = 0; i < items.length; i++) {
+        for (var j = 0; j < items[i].types.length; j++) {
+          if (/^image\//.test(items[i].types[j])) { items[i].getType(items[i].types[j]).then(useImage); return; }
+        }
+      }
+      sigNote('No image found on your clipboard. Copy your signature image first, then tap Paste image.', 'err');
+    }).catch(blocked);
+  });
+  document.addEventListener('paste', function (e) {
+    var t = e.target;
+    if (t && (t.tagName === 'TEXTAREA' || (t.tagName === 'INPUT' && /^(text|tel|email)$/.test(t.type)))) return;
+    var items = (e.clipboardData && e.clipboardData.items) || [];
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].kind === 'file' && /^image\//.test(items[i].type)) { e.preventDefault(); useImage(items[i].getAsFile()); return; }
+    }
+  });
+  var wrapEl = $('sigWrap');
+  wrapEl.addEventListener('dragover', function (e) { e.preventDefault(); wrapEl.classList.add('drag'); });
+  wrapEl.addEventListener('dragleave', function () { wrapEl.classList.remove('drag'); });
+  wrapEl.addEventListener('drop', function (e) {
+    e.preventDefault(); wrapEl.classList.remove('drag');
+    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if (f) useImage(f);
+  });
   function sigPng() {
     var w = 900, h = Math.round(w * padH / padW), c = document.createElement('canvas');
     c.width = w; c.height = h;
     var x = c.getContext('2d');
     x.fillStyle = '#ffffff'; x.fillRect(0, 0, w, h);
+    if (sigImg) fitImg(x, w, h);
     paint(x, w, h, '#111111', 5);
     return { url: c.toDataURL('image/png'), ratio: h / w };
   }
@@ -860,7 +928,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
       else if (!(l.price > 0)) errs.push(['day_' + l.day.id + '_price', 'Enter a price for ' + l.label + '.']);
     });
     if (!data.name) errs.push(['client_print_name', 'Enter your full name.']);
-    if (!data.drawn) errs.push(['sigWrap', 'Draw your signature in the signature box.']);
+    if (!data.drawn) errs.push(['sigWrap', 'Add your signature: draw it, or upload or paste an image of it.']);
     return errs;
   }
   function setStatus(html, cls) {
@@ -886,8 +954,8 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
     out.push('', 'CONFIRMED ORDER');
     d.lines.forEach(function (l) { out.push(l.label + ': ' + l.qty + ' x $' + fmt(l.price) + ' = $' + fmt(l.amount)); });
     out.push('TOTAL (incl. GST): $' + fmt(d.total) + ' AUD inc. GST', '', 'E-SIGNATURE');
-    out.push('Full Name: ' + (d.name || '-'), 'Date: ' + (d.date || '-'), 'E-Signature: ' + (d.drawn ? '(drawn signature attached in the PDF)' : '-'));
-    out.push('The drawn signature constitutes electronic signature and acceptance of the Terms & Conditions.');
+    out.push('Full Name: ' + (d.name || '-'), 'Date: ' + (d.date || '-'), 'E-Signature: ' + (d.drawn ? '(signature attached in the PDF)' : '-'));
+    out.push('The signature constitutes electronic signature and acceptance of the Terms & Conditions.');
     return out.join('\n');
   }
   /* ---------- PDF ---------- */
@@ -959,7 +1027,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
     doc.setDrawColor(INK[0], INK[1], INK[2]); doc.setLineWidth(0.3); doc.rect(M + 46, y, sw, sh);
     doc.addImage(s.url, 'PNG', M + 46, y, sw, sh); y += sh + 5;
     doc.setFont('helvetica', 'italic'); doc.setFontSize(8.2); doc.setTextColor(GREY[0], GREY[1], GREY[2]);
-    var nl = doc.splitTextToSize('The drawn signature above constitutes the Client\'s electronic signature and acceptance of these Terms & Conditions.', CW); need(nl.length * 3.6); doc.text(nl, M, y);
+    var nl = doc.splitTextToSize('The signature above constitutes the Client\'s electronic signature and acceptance of these Terms & Conditions.', CW); need(nl.length * 3.6); doc.text(nl, M, y);
 
     var pages = doc.getNumberOfPages();
     for (var i = 1; i <= pages; i++) {
@@ -991,7 +1059,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
     var done = function () { busy = false; $('savePdf').disabled = false; };
     var blob;
     try { blob = buildPdf(d); }
-    catch (e) { done(); setStatus('The PDF could not be created. Use "Email booking summary" instead.', 'err'); return; }
+    catch (e) { done(); setStatus('The PDF could not be created. Use "Email booking (PDF)" instead.', 'err'); return; }
     var name = pdfName(), file = null;
     try { file = new File([blob], name, { type: 'application/pdf' }); } catch (e) {}
     function download() {
@@ -1008,14 +1076,6 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
         else download();
       });
     } else download();
-  });
-  $('emailSummary').addEventListener('click', function () {
-    var d = collect(), errs = validate(d);
-    if (errs.length) { showErrors(errs); return; }
-    var subject = 'Booking confirmation - ' + (val('client_name') || 'Client') + ' - F1 2027';
-    var body = summary(d) + '\n\n(Please attach the saved PDF if you have it.)';
-    setStatus('Your email app should open with the booking summary. If nothing opened, save the PDF and email it to <b>' + MAIL + '</b>.', 'ok');
-    window.location.href = 'mailto:' + MAIL + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
   });
   recalc();
 })();
